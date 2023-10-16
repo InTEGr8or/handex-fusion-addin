@@ -7,6 +7,7 @@ from .commandDialog import entry as commandDialog
 from .paletteShow import entry as paletteShow
 from .paletteSend import entry as paletteSend
 from .Selections import entry as Selections
+from .three_point_face import entry as threePointFace
 
 # TODO add your imported modules to this list.
 # Fusion will automatically call the start() and stop() functions.
@@ -14,7 +15,8 @@ commands = [
     commandDialog,
     paletteShow,
     paletteSend,
-    Selections
+    Selections,
+    threePointFace
 ]
 
 
