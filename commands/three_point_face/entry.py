@@ -32,9 +32,15 @@ design:adsk.fusion.Design = adsk.fusion.Design.cast(app.activeProduct)
 # Get the root component of the active design.
 rootComp = design.rootComponent
 
+sketches = rootComp.sketches
+onstructionPoints = rootComp.constructionPoints
+constructionPlanes = rootComp.constructionPlanes
+
+pointInput = onstructionPoints.createInput()
+
 CMD_NAME = os.path.basename(os.path.dirname(__file__))
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_{CMD_NAME}'
-CMD_Description = 'Selection Input Sample Command'
+CMD_Description = 'Face creation by the selection of three points.'
 IS_PROMOTED = False
 
 # Global variables by referencing values from /config.py
@@ -51,9 +57,10 @@ ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resource
 
 # Holds references to event handlers
 local_handlers = []
+facePoints = []
 
 @dataclass
-class Points:
+class Point:
     x: float
     y: float
     z: float
@@ -68,7 +75,7 @@ class Angle3D:
 class Object(object):
     pass
 
-def pointToVec3D(vec: Points):
+def pointToVec3D(vec: Point):
     return adsk.core.Vector3D.create(mm(vec.x), mm(vec.y), mm(vec.z))
 
 def mm(centimeters: float):
@@ -105,6 +112,7 @@ def start():
 
     # Now you can set various options on the control such as promoting it to always be shown.
     control.isPromoted = IS_PROMOTED
+    facePoints.clear()
 
 
 # Executed when add-in is stopped.
@@ -132,115 +140,6 @@ def stop():
     if toolbar_tab.toolbarPanels.count == 0:
         toolbar_tab.deleteMe()
 
-
-def describe_body(body:adsk.fusion.BRepBody, plane: adsk.fusion.ConstructionPlane = rootComp.xZConstructionPlane)->str:
-    outString = ''
-    outString = f'- {body.name}:\n'
-    outBody = Object()
-    outBody.name = body.name
-    outBody.faces = []
-    outBody.BRepFaces = []
-    if isinstance(plane, adsk.fusion.BRepFace):
-        futil.log(f'Comparing {body.name} to \n{plane.geometry}')
-    else:
-        futil.log(f'Comparing {body.name} to {plane.name}\n{plane.geometry}')
-    for face in body.faces:
-        if face.area > 0.5:
-            outBody.BRepFaces.append(face)
-            outFace = Object()
-            outFace.tempId = face.tempId
-            outFace.area = face.area
-            outFace.centroid = [c*10 for c in face.centroid.asArray()]
-            measuredAngle = app.measureManager.measureAngle(face, plane)
-            outBody.positionOne = [math.degrees(a) for a in measuredAngle.positionOne.asArray()]
-
-            outString += f'  Face{face.tempId}:\n'
-            outString += f'    Area: {face.area}\n'
-            outString += f'    Centroid: {[c*10 for c in face.centroid.asArray()]}\n'
-            outString += f'    PositionOne: {str([math.degrees(a) for a in measuredAngle.positionOne.asArray()])}\n'
-            outString += f'    PositionTwo: {str([math.degrees(a) for a in measuredAngle.positionTwo.asArray()])}\n'
-            outString += f'    PositionThree: {str([math.degrees(a) for a in measuredAngle.positionThree.asArray()])}\n'
-            outString += f'    measuredAngle: {str(math.degrees(measuredAngle.value))}\n'
-
-            # Draw the measured angle on the face
-            design.rootComponent.features.createSketch(measuredAngle.positionOne, measuredAngle.positionTwo, measuredAngle.positionThree)
-            # TODO: Draw the xyz transform that would need to be applied to the face to make it parallel to the plane
-
-            faceNormals:adsk.core.Vector3D = face.geometry.evaluator.getNormalAtPoint(face.centroid)
-            for normal in faceNormals:
-                if not isinstance(normal, bool):
-                    outString += f'    Normals: {[ math.degrees(n) for n in normal.asArray()]}\n'
-            outBody.faces.append(outFace)
-    return outString, outBody
-
-def create_finger_base(selected_body:adsk.fusion.BRepBody, finger_name:str, translate:Points, angles:Angle3D):
-    futil.log(f'Creating {finger_name}')
-    features = rootComp.features
-
-    # Get the first sub component
-    occs = rootComp.occurrences
-    # subComp1 = occs.item(0).component
-    subComp1 = rootComp
-
-    # Get the first body in sub component 1  
-    baseBody = subComp1.bRepBodies.item(0)
-    
-    # Copy/paste bodies
-    subComp1.features.copyPasteBodies.add(selected_body)
-    
-    # Rename Body
-    bodies = subComp1.bRepBodies
-    selected_bodyCopy: adsk.fusion.BRepBody = subComp1.bRepBodies.item(bodies.count - 1)
-    selected_bodyCopy.name = finger_name + "_generated"
-    selected_bodyCopy.opacity = 0.5
-
-    # Create a collection of entities for move
-    bodies = adsk.core.ObjectCollection.create()
-    bodies.add(selected_bodyCopy)    
-    
-    moveFeats = features.moveFeatures
-
-    # Create a transform to do move
-    futil.log("Translate: " + str(translate))
-    vector = pointToVec3D(translate)
-    transform = adsk.core.Matrix3D.create()
-    transform.translation = vector
-    # Create a move feature
-    moveFeatureInput = moveFeats.createInput(bodies, transform)
-    moveFeats.add(moveFeatureInput)
-
-    # Pivot at center of translated body
-    pivot = vector.asPoint()
-    
-    # Translate pivot for model
-    # pivot.x = pivot.x + mm(5)
-    pivot.y = pivot.y + mm(0.5)
-    # pivot.z = pivot.z + mm(5)
-
-    if angles.x != 0:
-        # Rotate X
-        axis = pointToVec3D(Points(1,0,0))
-        transform = adsk.core.Matrix3D.create()
-        transform.setToRotation(angle = deg(angles.x), axis = axis, origin = pivot)
-        moveFeatureInput = moveFeats.createInput(bodies, transform)
-        moveFeats.add(moveFeatureInput)    
-
-    if angles.y != 0:
-        # Rotate Y
-        axis = pointToVec3D(Points(0,1,0))
-        transform = adsk.core.Matrix3D.create()
-        transform.setToRotation(angle = deg(angles.y), axis = axis, origin = pivot)
-        moveFeatureInput = moveFeats.createInput(bodies, transform)
-        moveFeats.add(moveFeatureInput)    
-
-    if angles.z != 0:
-        # Rotate Z
-        axis = pointToVec3D(Points(0,0,1))
-        transform = adsk.core.Matrix3D.create()
-        transform.setToRotation(angle = deg(angles.z), axis = axis, origin = pivot)
-        moveFeatureInput = moveFeats.createInput(bodies, transform)
-        moveFeats.add(moveFeatureInput)    
-
 # Function to be called when a user clicks the corresponding button in the UI.
 def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.log(f'{CMD_NAME} Command Created Event')
@@ -253,19 +152,19 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     inputs = args.command.commandInputs
 
     # Create some text boxes for your user interface
-    title_box = inputs.addTextBoxCommandInput('title_box', '', 'Selected Item', 1, True)
+    title_box = inputs.addTextBoxCommandInput('title_box', '', 'Select three vertices', 1, True)
     title_box.isFullWidth = True
-    name_box = inputs.addTextBoxCommandInput('name_box', 'Name', 'Pick Something', 1, True)
-    type_box = inputs.addTextBoxCommandInput('type_box', 'Type', 'Pick Something', 1, True)
+
+    thickness_input = inputs.addValueInput('thickness_input', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(mm(1.5)))
+
+    offset_input = inputs.addValueInput('offset_input', 'Offset', 'mm', adsk.core.ValueInput.createByReal(mm(0.0)))
 
     # Create a selection input, apply filters and set the selection limits
-    selection_input = inputs.addSelectionInput('selection_input', 'Some Selection', 'Select Something')
-    selection_input.addSelectionFilter('SolidBodies')
-    selection_input.addSelectionFilter('RootComponents')
-    selection_input.addSelectionFilter('Occurrences')
-    selection_input.setSelectionLimits(1, 1)
+    selection_input = inputs.addSelectionInput('selection_input', 'Face corners', 'Select 3 vertices')
+    selection_input.addSelectionFilter('Vertices')
+    selection_input.setSelectionLimits(3, 3)
 
-    selection_input.addSelection(rootComp.bRepBodies.item(0))
+    # selection_input.addSelection(rootComp.bRepBodies.item(0))
 
 
 # This function will be called when the user clicks the OK button in the command dialog.
@@ -274,84 +173,56 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
     inputs = args.command.commandInputs
     selection_input: adsk.core.SelectionCommandInput = inputs.itemById('selection_input')
+    thickness_input: adsk.core.SelectionCommandInput = inputs.itemById('thickness_input')
+    offset_input: adsk.core.SelectionCommandInput = inputs.itemById('offset_input')
 
-    selection = selection_input.selection(0)
-    selected_body = selection.entity
+    # and then create a plane from those vectors
+    planeInput = constructionPlanes.createInput()
+    planeInput.setByThreePoints(facePoints[0], facePoints[1], facePoints[2])
+    planeInput.setByOffset(facePoints[0], adsk.core.ValueInput.createByReal(offset_input.value))
+    thisPlane = constructionPlanes.add(planeInput)
+
+    # and then project the three vectors onto the sketch
+
+    # Create a sketch and project the points onto it
+    faceSketch = sketches.add(thisPlane)
+    faceSketchPoint0 = faceSketch.project(facePoints[0])[0]
+    faceSketchPoint1 = faceSketch.project(facePoints[1])[0]
+    faceSketchPoint2 = faceSketch.project(facePoints[2])[0]
+
+    # Create a line between the three points
+    faceSketchLines = faceSketch.sketchCurves.sketchLines
+    faceSketchLines.addByTwoPoints(faceSketchPoint0, faceSketchPoint1)
+    faceSketchLines.addByTwoPoints(faceSketchPoint1, faceSketchPoint2)
+    faceSketchLines.addByTwoPoints(faceSketchPoint2, faceSketchPoint0)
+    faceSketch.isVisible = True
+
+    # Extrude the sketch
+    extrudes = rootComp.features.extrudeFeatures
+    extInput = extrudes.createInput(faceSketch.profiles.item(0), adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    extInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(thickness_input.value))
+    extInput.isSolid = True
+    extInput.isSymmetric = True
+    extrudes.add(extInput)
+
+    facePoints.clear()
     
-    my_path = os.path.abspath(os.path.dirname(__file__))
-    path = os.path.join(my_path, "fingerTransforms.csv")
-
-    futil.log(f"Replicating {rootComp.name} {selected_body.name} to fingers")
-
-    bodies = rootComp.bRepBodies
-    output = ""
-    outBodies = []
-    compareBodies = []
-    compareType = "thumb"
-    for body in bodies:
-        
-        # Compare matching body faces 
-        if compareType in body.name:
-            outstring,outBody = describe_body(body)
-            if len(compareBodies) > 0:
-                futil.log(f"Comparing {compareType} Type")
-                compareBody = compareBodies.pop()
-                for compareBodyFace in compareBody.BRepFaces:
-                    outString,outBody = describe_body(body, compareBodyFace)
-                    output += outstring.replace(compareType, f"{compareType}_compare")
-                    outBody.name = outBody.name + "_compare"
-                    outBodies.append(outBody)
-            else:
-                futil.log(f"Adding {compareType} compare")
-                compareBodies.append(outBody)
-            
-        if "-base" in body.name or "-source" in body.name:
-            futil.log(f"Comparing base type {body.name}")
-            outstring,outBody = describe_body(body)
-            output += outstring
-            outBodies.append(outBody)
-            
-        if "_generated" in body.name:
-            futil.log(f"Comparing generated type {body.name}")
-            outstring,outBody = describe_body(body)
-            output += outstring
-            outBodies.append(outBody)
-    
-    for body in reversed(bodies):
-        if "_generated" in body.name:
-            body.deleteMe()
-    
-    f = open(path.replace(".csv", f"{rootComp.name}.yaml"), "w")
-    f.write(output)
-    f.close()
-
-    with open(path, "r") as csvfile:
-        fingers = csv.DictReader(csvfile)
-        for finger in fingers:
-            create_finger_base(selected_body, finger["name"], 
-                               translate = Points(float(finger["tx"]), float(finger["ty"]), float(finger["tz"])), 
-                               angles = Angle3D(float(finger["rx"]), float(finger["ry"]), float(finger["rz"]))
-                              )
-    
-
 # This function will be called when the user changes anything in the command dialog.
 def command_input_changed(args: adsk.core.InputChangedEventArgs):
     changed_input = args.input
     inputs = args.inputs
-    futil.log(f'{CMD_NAME} Input Changed Event fired from a change to {changed_input.id}')
+    futil.log(f'{CMD_NAME} Input Changed Event fired from a change to {inputs}')
 
     selection_input: adsk.core.SelectionCommandInput = inputs.itemById('selection_input')
-    name_box: adsk.core.TextBoxCommandInput = inputs.itemById('name_box')
-    type_box: adsk.core.TextBoxCommandInput = inputs.itemById('type_box')
 
     if changed_input.id == 'selection_input':
         if selection_input.selectionCount > 0:
-            selected_entity = selection_input.selection(0).entity
-            name_box.text = selected_entity.name
-            type_box.text = selected_entity.objectType
-        else:
-            name_box.text = 'Pick Something'
-            type_box.text = 'Pick Something'
+            brepVertex = selection_input.selection(selection_input.selectionCount - 1).entity
+            _3dPoint = brepVertex
+            point = Point(_3dPoint.geometry.x, _3dPoint.geometry.y, _3dPoint.geometry.z)
+            facePoints.append(_3dPoint)
+            futil.log(f'User selected {point.x}, {point.y}, {point.z}')
+
 
 
 # This function will be called when the user completes the command.

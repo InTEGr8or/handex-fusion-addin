@@ -15,7 +15,7 @@ commands = [
     commandDialog,
     paletteShow,
     paletteSend,
-    Selections,
+    # Selections,
     threePointFace
 ]
 
