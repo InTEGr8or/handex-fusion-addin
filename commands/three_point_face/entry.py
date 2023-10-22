@@ -30,13 +30,10 @@ design:adsk.fusion.Design = adsk.fusion.Design.cast(app.activeProduct)
 #     return
 
 # Get the root component of the active design.
-rootComp = design.rootComponent
-
-sketches = rootComp.sketches
-onstructionPoints = rootComp.constructionPoints
-constructionPlanes = rootComp.constructionPlanes
-
-pointInput = onstructionPoints.createInput()
+def thisComponent():
+    if design.activeComponent == None:
+        return design.rootComponent
+    return design.activeComponent or design.rootComponent
 
 CMD_NAME = os.path.basename(os.path.dirname(__file__))
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_{CMD_NAME}'
@@ -148,6 +145,8 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
     futil.add_handler(args.command.inputChanged, command_input_changed, local_handlers=local_handlers)
     futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
+    futil.add_handler(args.command.executePreview, command_preview, local_handlers=local_handlers)
+    futil.add_handler(args.command.validateInputs, command_validate, local_handlers=local_handlers)
 
     inputs = args.command.commandInputs
 
@@ -155,56 +154,120 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     title_box = inputs.addTextBoxCommandInput('title_box', '', 'Select three vertices', 1, True)
     title_box.isFullWidth = True
 
-    thickness_input = inputs.addValueInput('thickness_input', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(mm(1.5)))
-
-    offset_input = inputs.addValueInput('offset_input', 'Offset', 'mm', adsk.core.ValueInput.createByReal(mm(0.0)))
-
     # Create a selection input, apply filters and set the selection limits
     selection_input = inputs.addSelectionInput('selection_input', 'Face corners', 'Select 3 vertices')
     selection_input.addSelectionFilter('Vertices')
     selection_input.setSelectionLimits(3, 3)
 
-    # selection_input.addSelection(rootComp.bRepBodies.item(0))
+    thickness_input = inputs.addValueInput('thickness_input', 'Thickness', 'mm', adsk.core.ValueInput.createByReal(mm(1)))
 
+    offset_input = inputs.addValueInput('offset_input', 'Offset', 'mm', adsk.core.ValueInput.createByReal(mm(0.0)))
 
-# This function will be called when the user clicks the OK button in the command dialog.
-def command_execute(args: adsk.core.CommandEventArgs):
-    futil.log(f'{CMD_NAME} Command Execute Event')
+    taper_angle = inputs.addAngleValueCommandInput('taper_angle', 'Taper angle', adsk.core.ValueInput.createByReal(deg(0.0)))
 
-    inputs = args.command.commandInputs
+    extrude_direction = inputs.addDirectionCommandInput('extrude_direction', 'Direction flipped?')
+    extrude_direction.setManipulator(adsk.core.Point3D.create(0, 0, 0), pointToVec3D(Point(0, 1, 0)))
+
+def command_validate(args: adsk.core.ValidateInputsEventArgs):
+    # futil.log(f'{CMD_NAME} Command Validate Event with {args}')
+
+    inputs = args.inputs
     selection_input: adsk.core.SelectionCommandInput = inputs.itemById('selection_input')
     thickness_input: adsk.core.SelectionCommandInput = inputs.itemById('thickness_input')
     offset_input: adsk.core.SelectionCommandInput = inputs.itemById('offset_input')
 
+    if selection_input.selectionCount < 3:
+        args.areInputsValid = False
+        return
+
+    args.areInputsValid = True
+
+def command_preview(args: adsk.core.CommandEventArgs):
+    futil.log(f'{CMD_NAME} Command Preview Event')
+    inputs = args.command.commandInputs
+    createExtrudeFromInputs(inputs)
+
+def createPlaneFromInputs(inputs: adsk.core.CommandInputs):
+    selection_input: adsk.core.SelectionCommandInput = inputs.itemById('selection_input')
+    offset_input: adsk.core.SelectionCommandInput = inputs.itemById('offset_input')
+    extrude_direction: adsk.core.SelectionCommandInput = inputs.itemById('extrude_direction')
+
     # and then create a plane from those vectors
-    planeInput = constructionPlanes.createInput()
-    planeInput.setByThreePoints(facePoints[0], facePoints[1], facePoints[2])
-    planeInput.setByOffset(facePoints[0], adsk.core.ValueInput.createByReal(offset_input.value))
-    thisPlane = constructionPlanes.add(planeInput)
+    constructionPlanes = thisComponent().constructionPlanes
+    futil.log(f'Creating plane in {thisComponent().name} Construction Planes collection with {len(constructionPlanes)} planes)')
+    inputPlane = constructionPlanes.createInput()
+    inputPlane.setByThreePoints(facePoints[0], facePoints[1], facePoints[2])
+    inputPlane.isVisible = False
+    
+    thisPlane = constructionPlanes.add(inputPlane)
+    if offset_input.value > 0:
+        offsetPlane = constructionPlanes.createInput()
+        offsetValue = offset_input.value * -1 if extrude_direction.isDirectionFlipped else offset_input.value
+        offsetPlane.setByOffset(thisPlane, adsk.core.ValueInput.createByReal(offsetValue))
+        offsetPlane.isVisible = False
+        thisPlane = constructionPlanes.add(offsetPlane)
 
-    # and then project the three vectors onto the sketch
+    # planeInput.setByOffset(facePoints[0], adsk.core.ValueInput.createByReal(offset_input.value))
+    return thisPlane
 
+def createProfileFromInputs(inputs: adsk.core.CommandInputs, thisPlane: adsk.fusion.ConstructionPlane):
     # Create a sketch and project the points onto it
-    faceSketch = sketches.add(thisPlane)
+    faceSketch = thisComponent().sketches.add(thisPlane)
     faceSketchPoint0 = faceSketch.project(facePoints[0])[0]
     faceSketchPoint1 = faceSketch.project(facePoints[1])[0]
     faceSketchPoint2 = faceSketch.project(facePoints[2])[0]
 
-    # Create a line between the three points
+    # Create lines between the three points
     faceSketchLines = faceSketch.sketchCurves.sketchLines
     faceSketchLines.addByTwoPoints(faceSketchPoint0, faceSketchPoint1)
     faceSketchLines.addByTwoPoints(faceSketchPoint1, faceSketchPoint2)
     faceSketchLines.addByTwoPoints(faceSketchPoint2, faceSketchPoint0)
     faceSketch.isVisible = True
+    return faceSketch
 
+def createExtrudeFromSketch(inputs: adsk.core.CommandInputs, faceSketch: adsk.fusion.Sketch):
     # Extrude the sketch
-    extrudes = rootComp.features.extrudeFeatures
-    extInput = extrudes.createInput(faceSketch.profiles.item(0), adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-    extInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(thickness_input.value))
+    thickness_input: adsk.core.SelectionCommandInput = inputs.itemById('thickness_input')
+    extrude_direction: adsk.core.SelectionCommandInput = inputs.itemById('extrude_direction')
+    taper_angle: adsk.core.SelectionCommandInput = inputs.itemById('taper_angle')
+
+    # Create surface from the sketch
+    profile = faceSketch.profiles[0]
+    extrudes = thisComponent().features.extrudeFeatures
+    extInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    extrudeValue = thickness_input.value * -1 if extrude_direction.isDirectionFlipped else thickness_input.value
+    extrudeExtent = adsk.core.ValueInput.createByReal(extrudeValue)
+    extInput.setDistanceExtent(False, extrudeExtent)
     extInput.isSolid = True
-    extInput.isSymmetric = True
+    # extInput.isSymmetric = True
     extrudes.add(extInput)
 
+def createFaceFromSketch(inputs: adsk.core.CommandInputs, faceSketch: adsk.fusion.Sketch):
+    # Extrude the sketch
+    thickness_input: adsk.core.SelectionCommandInput = inputs.itemById('thickness_input')
+
+    # Create surface from the sketch
+    profile = thisComponent().createOpenProfile(faceSketch.sketchCurves.sketchLines[0], True)
+    extrudes = thisComponent().features.extrudeFeatures
+    extInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    extInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(thickness_input.value))
+    extInput.isSolid = False
+    # extInput.isSymmetric = True
+    extrudes.add(extInput)
+
+def createExtrudeFromInputs(inputs: adsk.core.CommandInputs):
+    # and then project the three vectors onto the sketch
+    thisPlane = createPlaneFromInputs(inputs)
+    # Create profile from the inputs
+    faceSketch = createProfileFromInputs(inputs, thisPlane)
+    # Extrude the sketch
+    createExtrudeFromSketch(inputs, faceSketch)
+
+# This function will be called when the user clicks the OK button in the command dialog.
+def command_execute(args: adsk.core.CommandEventArgs):
+    futil.log(f'{CMD_NAME} Command Execute Event')
+    inputs = args.command.commandInputs
+    createExtrudeFromInputs(inputs)
     facePoints.clear()
     
 # This function will be called when the user changes anything in the command dialog.
