@@ -34,7 +34,7 @@ rootComp = design.rootComponent
 
 CMD_NAME = os.path.basename(os.path.dirname(__file__))
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_{CMD_NAME}'
-CMD_Description = 'Transforms'
+CMD_Description = 'Multiply Bases by CSV transforms'
 IS_PROMOTED = False
 
 # Global variables by referencing values from /config.py
@@ -253,18 +253,20 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     inputs = args.command.commandInputs
 
     # Create some text boxes for your user interface
-    title_box = inputs.addTextBoxCommandInput('title_box', '', 'Selected Items', 1, True)
+    title_box = inputs.addTextBoxCommandInput('title_box', '', 'Selected Item', 1, True)
     title_box.isFullWidth = True
+    name_box = inputs.addTextBoxCommandInput('name_box', 'Name', 'Pick Something', 1, True)
+    type_box = inputs.addTextBoxCommandInput('type_box', 'Type', 'Pick Something', 1, True)
 
-    # Compare from face
-    base_selection = inputs.addSelectionInput('base_selection', 'Base Selection', 'Select Something')
-    base_selection.addSelectionFilter('Faces')
-    base_selection.setSelectionLimits(1, 1)
+    # Create a selection input, apply filters and set the selection limits
+    selection_input = inputs.addSelectionInput('selection_input', 'Some Selection', 'Select Something')
+    selection_input.addSelectionFilter('SolidBodies')
+    selection_input.addSelectionFilter('RootComponents')
+    selection_input.addSelectionFilter('Occurrences')
+    selection_input.setSelectionLimits(1, 1)
 
-    # Compare to face
-    comparison_selection = inputs.addSelectionInput('comparison_selection', 'Comparison Selection', 'Select Something')
-    comparison_selection.addSelectionFilter('Faces')
-    comparison_selection.setSelectionLimits(1, 1)
+    selection_input.addSelection(rootComp.bRepBodies.item(0))
+
 
 # This function will be called when the user clicks the OK button in the command dialog.
 def command_execute(args: adsk.core.CommandEventArgs):
@@ -338,14 +340,18 @@ def command_input_changed(args: adsk.core.InputChangedEventArgs):
     inputs = args.inputs
     futil.log(f'{CMD_NAME} Input Changed Event fired from a change to {changed_input.id}')
 
-    base_selection: adsk.core.SelectionCommandInput = inputs.itemById('base_selection')
-    comparison_selection: adsk.core.SelectionCommandInput = inputs.itemById('comparison_selection')
+    selection_input: adsk.core.SelectionCommandInput = inputs.itemById('selection_input')
+    name_box: adsk.core.TextBoxCommandInput = inputs.itemById('name_box')
+    type_box: adsk.core.TextBoxCommandInput = inputs.itemById('type_box')
 
-    if base_selection.selectionCount > 0:
-        selected_entity = base_selection.selection(0).entity
-    else:
-        name_box.text = 'Pick Something'
-        type_box.text = 'Pick Something'
+    if changed_input.id == 'selection_input':
+        if selection_input.selectionCount > 0:
+            selected_entity = selection_input.selection(0).entity
+            name_box.text = selected_entity.name
+            type_box.text = selected_entity.objectType
+        else:
+            name_box.text = 'Pick Something'
+            type_box.text = 'Pick Something'
 
 
 # This function will be called when the user completes the command.
