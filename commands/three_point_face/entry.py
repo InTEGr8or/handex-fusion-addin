@@ -197,7 +197,7 @@ def createPlaneFromInputs(inputs: adsk.core.CommandInputs):
     futil.log(f'Creating plane in {thisComponent().name} Construction Planes collection with {len(constructionPlanes)} planes)')
     inputPlane = constructionPlanes.createInput()
     inputPlane.setByThreePoints(facePoints[0], facePoints[1], facePoints[2])
-    inputPlane.isVisible = False
+    # inputPlane.isVisible = False
     
     thisPlane = constructionPlanes.add(inputPlane)
     if offset_input.value > 0:
@@ -234,10 +234,15 @@ def createExtrudeFromSketch(inputs: adsk.core.CommandInputs, faceSketch: adsk.fu
     # Create surface from the sketch
     profile = faceSketch.profiles[0]
     extrudes = thisComponent().features.extrudeFeatures
-    extInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-    extrudeValue = thickness_input.value * -1 if extrude_direction.isDirectionFlipped else thickness_input.value
-    extrudeExtent = adsk.core.ValueInput.createByReal(extrudeValue)
-    extInput.setDistanceExtent(False, extrudeExtent)
+
+    distanceExtentDefinition = adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(thickness_input.value))
+
+    extInput:adks.fusion.ExtrudeFeatureInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    
+    direction = adsk.fusion.ExtentDirections.NegativeExtentDirection if extrude_direction.isDirectionFlipped else adsk.fusion.ExtentDirections.PositiveExtentDirection
+
+    extInput.setOneSideExtent(distanceExtentDefinition, direction)
+
     extInput.isSolid = True
     # extInput.isSymmetric = True
     extrudes.add(extInput)

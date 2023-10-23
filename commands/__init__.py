@@ -6,7 +6,7 @@
 from .commandDialog import entry as commandDialog
 from .paletteShow import entry as paletteShow
 from .paletteSend import entry as paletteSend
-from .Selections import entry as Selections
+from .Transforms import entry as Transforms
 from .three_point_face import entry as threePointFace
 
 # TODO add your imported modules to this list.
@@ -16,7 +16,7 @@ commands = [
     paletteShow,
     paletteSend,
     threePointFace,
-    Selections,
+    Transforms,
 ]
 
 
