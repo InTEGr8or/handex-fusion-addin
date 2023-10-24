@@ -136,7 +136,7 @@ def stop():
 def describe_body(body:adsk.fusion.BRepBody, plane: adsk.fusion.ConstructionPlane = rootComp.xZConstructionPlane)->str:
     outString = ''
     outString = f'- {body.name}:\n'
-    outBody = Object()
+    outBody:adsk.fusion.BRepBody = Object()
     outBody.name = body.name
     outBody.faces = []
     outBody.BRepFaces = []
@@ -151,96 +151,51 @@ def describe_body(body:adsk.fusion.BRepBody, plane: adsk.fusion.ConstructionPlan
             outFace.tempId = face.tempId
             outFace.area = face.area
             outFace.centroid = [c*10 for c in face.centroid.asArray()]
-            measuredAngle = app.measureManager.measureAngle(face, plane)
-            outBody.positionOne = [math.degrees(a) for a in measuredAngle.positionOne.asArray()]
-
-            outString += f'  Face{face.tempId}:\n'
-            outString += f'    Area: {face.area}\n'
-            outString += f'    Centroid: {[c*10 for c in face.centroid.asArray()]}\n'
-            outString += f'    PositionOne: {str([math.degrees(a) for a in measuredAngle.positionOne.asArray()])}\n'
-            outString += f'    PositionTwo: {str([math.degrees(a) for a in measuredAngle.positionTwo.asArray()])}\n'
-            outString += f'    PositionThree: {str([math.degrees(a) for a in measuredAngle.positionThree.asArray()])}\n'
-            outString += f'    measuredAngle: {str(math.degrees(measuredAngle.value))}\n'
-
-            # Draw the measured angle on the face
-            design.rootComponent.features.createSketch(measuredAngle.positionOne, measuredAngle.positionTwo, measuredAngle.positionThree)
-            # TODO: Draw the xyz transform that would need to be applied to the face to make it parallel to the plane
-
-            faceNormals:adsk.core.Vector3D = face.geometry.evaluator.getNormalAtPoint(face.centroid)
-            for normal in faceNormals:
-                if not isinstance(normal, bool):
-                    outString += f'    Normals: {[ math.degrees(n) for n in normal.asArray()]}\n'
+            measure_faces(face, plane, outBody)
             outBody.faces.append(outFace)
     return outString, outBody
 
-def create_finger_base(selected_body:adsk.fusion.BRepBody, finger_name:str, translate:Points, angles:Angle3D):
-    futil.log(f'Creating {finger_name}')
-    features = rootComp.features
+def measure_faces(face1:adsk.fusion.BRepFace, face2:adsk.fusion.BRepFace, outBody:adsk.fusion.BRepBody)->str:
+    outString = ''
+    outString += f'{face1.body.name} {face1.tempId} to {face2.body.name} {face2.tempId}:\n'
+    outString += f'  - face1_to_face2_centroid_distance: {10 * face1.centroid.distanceTo(face2.centroid)}\n'
 
-    # Get the first sub component
-    occs = rootComp.occurrences
-    # subComp1 = occs.item(0).component
-    subComp1 = rootComp
+    measuredAngle = app.measureManager.measureAngle(face1, face2)
+    if outBody:
+        outBody.positionOne = [math.degrees(a) for a in measuredAngle.positionOne.asArray()]
 
-    # Get the first body in sub component 1  
-    baseBody = subComp1.bRepBodies.item(0)
+    outString += f'  Face1 {face1.tempId}:\n'
+    outString += f'    Area mm**2: {100 * face1.area}\n'
+    outString += f'    Centroid coords: {[c * 10 for c in face1.centroid.asArray()]}\n'
+    outString += f'  Face2 {face2.tempId}:\n'
+    outString += f'    Area mm**2: {100 * face2.area}\n'
+    outString += f'    Centroid coords: {[c * 10 for c in face2.centroid.asArray()]}\n'
+    outString += f'  Measured Angle {measuredAngle.classType} {measuredAngle.objectType}:\n'
+    outString += f'    PositionOne: {str([a for a in measuredAngle.positionOne.asArray()])}\n'
+    outString += f'    PositionTwo: {str([a for a in measuredAngle.positionTwo.asArray()])}\n'
+    outString += f'    PositionThree: {str([a for a in measuredAngle.positionThree.asArray()])}\n'
+    outString += f'    measuredAngle: {str(math.degrees(measuredAngle.value))}\n'
+
+    # Draw the measured angle on the face
+    # TODO: Draw the xyz transform that would need to be applied to the face to make it parallel to the plane
+    # design.rootComponent.features.createSketch(measuredAngle.positionOne, measuredAngle.positionTwo, measuredAngle.positionThree)
+
+    faceNormals:adsk.core.Vector3D = face1.geometry.evaluator.getNormalAtPoint(face1.centroid)
+    for normal in faceNormals:
+        if not isinstance(normal, bool):
+            outString += f'Face1 Normals: {[ math.degrees(n/2*math.pi) for n in normal.asArray()]}\n'
+
+    faceNormals:adsk.core.Vector3D = face2.geometry.evaluator.getNormalAtPoint(face2.centroid)
+    for normal in faceNormals:
+        if not isinstance(normal, bool):
+            outString += f'Face2 Normals: {[ math.degrees(n/2*math.pi) for n in normal.asArray()]}\n'
     
-    # Copy/paste bodies
-    subComp1.features.copyPasteBodies.add(selected_body)
+    sketch = rootComp.sketches.add(rootComp.xYConstructionPlane)
+    sketch.sketchCurves.sketchLines.addByTwoPoints(measuredAngle.positionOne, measuredAngle.positionTwo)
+    sketch.sketchCurves.sketchLines.addByTwoPoints(measuredAngle.positionTwo, measuredAngle.positionThree)
     
-    # Rename Body
-    bodies = subComp1.bRepBodies
-    selected_bodyCopy: adsk.fusion.BRepBody = subComp1.bRepBodies.item(bodies.count - 1)
-    selected_bodyCopy.name = finger_name + "_generated"
-    selected_bodyCopy.opacity = 0.5
-
-    # Create a collection of entities for move
-    bodies = adsk.core.ObjectCollection.create()
-    bodies.add(selected_bodyCopy)    
+    return outString
     
-    moveFeats = features.moveFeatures
-
-    # Create a transform to do move
-    futil.log("Translate: " + str(translate))
-    vector = pointToVec3D(translate)
-    transform = adsk.core.Matrix3D.create()
-    transform.translation = vector
-    # Create a move feature
-    moveFeatureInput = moveFeats.createInput(bodies, transform)
-    moveFeats.add(moveFeatureInput)
-
-    # Pivot at center of translated body
-    pivot = vector.asPoint()
-    
-    # Translate pivot for model
-    # pivot.x = pivot.x + mm(5)
-    pivot.y = pivot.y + mm(0.5)
-    # pivot.z = pivot.z + mm(5)
-
-    if angles.x != 0:
-        # Rotate X
-        axis = pointToVec3D(Points(1,0,0))
-        transform = adsk.core.Matrix3D.create()
-        transform.setToRotation(angle = deg(angles.x), axis = axis, origin = pivot)
-        moveFeatureInput = moveFeats.createInput(bodies, transform)
-        moveFeats.add(moveFeatureInput)    
-
-    if angles.y != 0:
-        # Rotate Y
-        axis = pointToVec3D(Points(0,1,0))
-        transform = adsk.core.Matrix3D.create()
-        transform.setToRotation(angle = deg(angles.y), axis = axis, origin = pivot)
-        moveFeatureInput = moveFeats.createInput(bodies, transform)
-        moveFeats.add(moveFeatureInput)    
-
-    if angles.z != 0:
-        # Rotate Z
-        axis = pointToVec3D(Points(0,0,1))
-        transform = adsk.core.Matrix3D.create()
-        transform.setToRotation(angle = deg(angles.z), axis = axis, origin = pivot)
-        moveFeatureInput = moveFeats.createInput(bodies, transform)
-        moveFeats.add(moveFeatureInput)    
-
 # Function to be called when a user clicks the corresponding button in the UI.
 def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.log(f'{CMD_NAME} Command Created Event')
@@ -256,8 +211,12 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     title_box = inputs.addTextBoxCommandInput('title_box', '', 'Selected Items', 1, True)
     title_box.isFullWidth = True
 
+    # Select object selection type
+
     # Compare from face
     base_selection = inputs.addSelectionInput('base_selection', 'Base Selection', 'Select Something')
+
+    
     base_selection.addSelectionFilter('Faces')
     base_selection.setSelectionLimits(1, 1)
 
@@ -279,58 +238,10 @@ def command_execute(args: adsk.core.CommandEventArgs):
     my_path = os.path.abspath(os.path.dirname(__file__))
     path = os.path.join(my_path, "fingerTransforms.csv")
 
-    futil.log(f"Replicating {rootComp.name} {selected_body.name} to fingers")
-
     bodies = rootComp.bRepBodies
     output = ""
     outBodies = []
     compareBodies = []
-    compareType = "thumb"
-    for body in bodies:
-        
-        # Compare matching body faces 
-        if compareType in body.name:
-            outstring,outBody = describe_body(body)
-            if len(compareBodies) > 0:
-                futil.log(f"Comparing {compareType} Type")
-                compareBody = compareBodies.pop()
-                for compareBodyFace in compareBody.BRepFaces:
-                    outString,outBody = describe_body(body, compareBodyFace)
-                    output += outstring.replace(compareType, f"{compareType}_compare")
-                    outBody.name = outBody.name + "_compare"
-                    outBodies.append(outBody)
-            else:
-                futil.log(f"Adding {compareType} compare")
-                compareBodies.append(outBody)
-            
-        if "-base" in body.name or "-source" in body.name:
-            futil.log(f"Comparing base type {body.name}")
-            outstring,outBody = describe_body(body)
-            output += outstring
-            outBodies.append(outBody)
-            
-        if "_generated" in body.name:
-            futil.log(f"Comparing generated type {body.name}")
-            outstring,outBody = describe_body(body)
-            output += outstring
-            outBodies.append(outBody)
-    
-    for body in reversed(bodies):
-        if "_generated" in body.name:
-            body.deleteMe()
-    
-    f = open(path.replace(".csv", f"{rootComp.name}.yaml"), "w")
-    f.write(output)
-    f.close()
-
-    with open(path, "r") as csvfile:
-        fingers = csv.DictReader(csvfile)
-        for finger in fingers:
-            create_finger_base(selected_body, finger["name"], 
-                               translate = Points(float(finger["tx"]), float(finger["ty"]), float(finger["tz"])), 
-                               angles = Angle3D(float(finger["rx"]), float(finger["ry"]), float(finger["rz"]))
-                              )
-    
 
 # This function will be called when the user changes anything in the command dialog.
 def command_input_changed(args: adsk.core.InputChangedEventArgs):
@@ -341,12 +252,12 @@ def command_input_changed(args: adsk.core.InputChangedEventArgs):
     base_selection: adsk.core.SelectionCommandInput = inputs.itemById('base_selection')
     comparison_selection: adsk.core.SelectionCommandInput = inputs.itemById('comparison_selection')
 
-    if base_selection.selectionCount > 0:
+    if base_selection.selectionCount > 0 and comparison_selection.selectionCount > 0:
         selected_entity = base_selection.selection(0).entity
+        compare_result:str = measure_faces(base_selection.selection(0).entity, comparison_selection.selection(0).entity, None)
+        futil.log(compare_result)
     else:
-        name_box.text = 'Pick Something'
-        type_box.text = 'Pick Something'
-
+        futil.log('No selection')
 
 # This function will be called when the user completes the command.
 def command_destroy(args: adsk.core.CommandEventArgs):
