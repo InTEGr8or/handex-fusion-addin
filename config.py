@@ -16,7 +16,7 @@ DEBUG = True
 # that need a unique name. It's also recommended to use a company name as 
 # part of the ID to better ensure the ID is unique.
 ADDIN_NAME = os.path.basename(os.path.dirname(__file__))
-COMPANY_NAME = 'ACME'
+COMPANY_NAME = 'Handex'
 
 # Palettes
 sample_palette_id = f'{COMPANY_NAME}_{ADDIN_NAME}_palette_id'
@@ -25,7 +25,7 @@ sample_palette_id = f'{COMPANY_NAME}_{ADDIN_NAME}_palette_id'
 # Add tabs and panels to the UI using the following constants
 design_workspace = 'FusionSolidEnvironment'
 tools_tab_id = "ToolsTab"
-my_tab_name = "test"  # Only used if creating a custom Tab
+my_tab_name = "Handex"  # Only used if creating a custom Tab
 
 my_panel_id = f'{ADDIN_NAME}_panel_2'
 my_panel_name = ADDIN_NAME
