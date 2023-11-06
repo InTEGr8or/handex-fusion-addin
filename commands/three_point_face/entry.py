@@ -237,28 +237,53 @@ def createExtrudeFromSketch(inputs: adsk.core.CommandInputs, faceSketch: adsk.fu
 
     distanceExtentDefinition = adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(thickness_input.value))
 
-    extInput:adks.fusion.ExtrudeFeatureInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    extrudeBodyInput:adks.fusion.ExtrudeFeatureInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
     
     direction = adsk.fusion.ExtentDirections.NegativeExtentDirection if extrude_direction.isDirectionFlipped else adsk.fusion.ExtentDirections.PositiveExtentDirection
 
-    extInput.setOneSideExtent(distanceExtentDefinition, direction)
+    extrudeBodyInput.setOneSideExtent(distanceExtentDefinition, direction)
 
-    extInput.isSolid = True
-    # extInput.isSymmetric = True
-    extrudes.add(extInput)
+    extrudeBodyInput.isSolid = True
+    # extrudeBodyInput.isSymmetric = True
+    extrudes.add(extrudeBodyInput)
+    return extrudeBodyInput
 
 def createFaceFromSketch(inputs: adsk.core.CommandInputs, faceSketch: adsk.fusion.Sketch):
     # Extrude the sketch
     thickness_input: adsk.core.SelectionCommandInput = inputs.itemById('thickness_input')
 
     # Create surface from the sketch
-    profile = thisComponent().createOpenProfile(faceSketch.sketchCurves.sketchLines[0], True)
+    profile = faceSketch.profiles[0]
+    openProfile = thisComponent().createOpenProfile(faceSketch.sketchCurves.sketchLines[0], True)
     extrudes = thisComponent().features.extrudeFeatures
-    extInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-    extInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(thickness_input.value))
-    extInput.isSolid = False
-    # extInput.isSymmetric = True
-    extrudes.add(extInput)
+
+    # Body Extrude
+    extrudeBodyInput:adks.fusion.ExtrudeFeatureInput = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    extrudeBodyInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(thickness_input.value))
+    extrudeBodyInput.isSolid = True
+    extrude = extrudes.add(extrudeBodyInput)
+
+    # # Face Extrude
+    # extrudeFaceInput:adks.fusion.ExtrudeFeatureInput = extrudes.createInput(openProfile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    # extrudeFaceInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(thickness_input.value))
+    # extrudeFaceInput.isSolid = False
+    # extrude = extrudes.add(extrudeFaceInput)
+
+    body = extrude.bodies[0]
+
+    # Create input for offset feature
+    inputEntities = adsk.core.ObjectCollection.create()
+    inputEntities.add(body.faces[4])
+
+    distance = adsk.core.ValueInput.createByReal(0.0)
+
+    offsetFeatures = thisComponent().features.offsetFeatures
+    offsetInput = offsetFeatures.createInput(inputEntities, distance, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+
+    offset = offsetFeatures.add(offsetInput)
+    # Delete the source body
+    extrude.deleteMe()
+    
 
 def createExtrudeFromInputs(inputs: adsk.core.CommandInputs):
     # and then project the three vectors onto the sketch
@@ -266,7 +291,7 @@ def createExtrudeFromInputs(inputs: adsk.core.CommandInputs):
     # Create profile from the inputs
     faceSketch = createProfileFromInputs(inputs, thisPlane)
     # Extrude the sketch
-    createExtrudeFromSketch(inputs, faceSketch)
+    createFaceFromSketch(inputs, faceSketch)
 
 # This function will be called when the user clicks the OK button in the command dialog.
 def command_execute(args: adsk.core.CommandEventArgs):
@@ -286,10 +311,8 @@ def command_input_changed(args: adsk.core.InputChangedEventArgs):
     if changed_input.id == 'selection_input':
         if selection_input.selectionCount > 0:
             brepVertex = selection_input.selection(selection_input.selectionCount - 1).entity
-            _3dPoint = brepVertex
-            point = Point(_3dPoint.geometry.x, _3dPoint.geometry.y, _3dPoint.geometry.z)
-            facePoints.append(_3dPoint)
-            futil.log(f'User selected {point.x}, {point.y}, {point.z}')
+            facePoints.append(brepVertex)
+            futil.log(f'User selected {selection_input.selectionCount} vertices and {len(facePoints)} facePoints')
 
 
 

@@ -193,6 +193,14 @@ def measure_faces(face1:adsk.fusion.BRepFace, face2:adsk.fusion.BRepFace, outBod
     sketchXy = rootComp.sketches.add(rootComp.xYConstructionPlane)
     sketchXy.project(face1)
     sketchXy.project(face2)
+    # sketchXy.project(measuredAngle.positionOne)
+    # sketchXy.project(measuredAngle.positionTwo)
+    # sketchXy.project(measuredAngle.positionThree)
+    segmentOne = sketchXy.sketchCurves.sketchLines.addByTwoPoints(measuredAngle.positionOne, measuredAngle.positionTwo)
+    segmentTwo = sketchXy.sketchCurves.sketchLines.addByTwoPoints(measuredAngle.positionTwo, measuredAngle.positionThree)
+    sketchXy.project(segmentOne)
+    sketchXy.project(segmentTwo)
+    sketchXy.isVisible = True
     
     return outString
     
